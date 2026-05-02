@@ -1,0 +1,227 @@
+import { useEffect, useState, useRef } from "react";
+import FileUpload from "@/components/FileUpload";
+import Instructions from "@/components/Instructions";
+import Statistics from "@/components/Statistics";
+import Records from "@/components/Records";
+import ShareImageGenerator from "@/components/ShareImageGenerator";
+import LockedStats from "@/components/LockedStats";
+import DemoStatsPage from "@/components/DemoStatsPage";
+import ConversionSection from "@/components/ConversionSection";
+import {
+  parseJsonFile,
+  parseZipFile,
+  parseTxtFile,
+  calculateStats,
+  TikTokStats,
+} from "@/lib/tiktokParser";
+import { toast } from "@/hooks/use-toast";
+import { usePaywall } from "@/hooks/usePaywall";
+import { Eye, Shield } from "lucide-react";
+
+const STATS_KEY = "asimoc_stats";
+
+const Index = () => {
+  const [stats, setStats] = useState<TikTokStats | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
+  const uploadRef = useRef<HTMLDivElement>(null);
+  const { isPaid } = usePaywall();
+
+  const scrollToUpload = () => {
+    uploadRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    const ulozene = sessionStorage.getItem(STATS_KEY);
+    if (ulozene) setStats(JSON.parse(ulozene));
+  }, []);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [stats, showDemo]);
+
+  const handleFileUpload = async (file: File) => {
+    setIsProcessing(true);
+    try {
+      let data: any;
+      const fileName = file.name.toLowerCase();
+      const fileType = file.type.toLowerCase();
+
+      const isZip = fileName.endsWith(".zip") || fileType === "application/zip" || fileType === "application/x-zip-compressed";
+      const isJson = fileName.endsWith(".json") || fileType === "application/json";
+      const isTxt = fileName.endsWith(".txt") || fileType === "text/plain" || fileType.startsWith("text/");
+
+      if (isZip) data = await parseZipFile(file);
+      else if (isJson) data = await parseJsonFile(file);
+      else if (isTxt) data = await parseTxtFile(file);
+      else {
+        try { data = await parseTxtFile(file); }
+        catch {
+          toast({ title: "Nepodporovaný formát", description: "Nahraj soubor ve formátu .json, .zip nebo .txt z exportu TikTok dat.", variant: "destructive" });
+          return;
+        }
+      }
+
+      if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
+        toast({ title: "Prázdný soubor", description: "Soubor neobsahuje žádná data. Zkontroluj, že nahráváš správný export z TikToku.", variant: "destructive" });
+        return;
+      }
+
+      const vypocteneStaty = calculateStats(data);
+      if (vypocteneStaty.totalVideos === 0) {
+        toast({ title: "Žádná historie sledování", description: "V souboru jsme nenašli historii videí. Ujisti se, že nahráváš soubor z TikTok exportu.", variant: "destructive" });
+        return;
+      }
+
+      setStats(vypocteneStaty);
+      sessionStorage.setItem(STATS_KEY, JSON.stringify(vypocteneStaty));
+      toast({ title: "Hotovo ✓", description: "Tvoje statistiky jsou připravené.", duration: 2000 });
+    } catch (e) {
+      console.error("[Asimoc] Upload error:", e);
+      toast({ title: "Nepodařilo se zpracovat soubor", description: "Zkus nahrát soubor znovu.", variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const resetAll = () => {
+    sessionStorage.clear();
+    setStats(null);
+    setShowDemo(false);
+  };
+
+  if (showDemo && !stats) {
+    return <DemoStatsPage onBack={() => setShowDemo(false)} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto max-w-md px-5 py-16">
+
+        {/* Header */}
+        <header className="text-center mb-12 space-y-4 animate-fade-up">
+          <div className="flex justify-center mb-3">
+            <span className="tag-label">TikTok analýza</span>
+          </div>
+          <h1 className="text-6xl sm:text-7xl font-display font-black gradient-text leading-[0.95] tracking-tight">
+            Asimoc
+          </h1>
+          <p className="text-base text-muted-foreground max-w-xs mx-auto leading-relaxed">
+            Zjisti, kolik hodin tvého života si vzal{" "}
+            <span className="text-foreground font-semibold">TikTok</span>.
+          </p>
+        </header>
+
+        {!stats ? (
+          <>
+            {/* Upload zone */}
+            <div ref={uploadRef} className="animate-fade-up" style={{ animationDelay: "0.1s", opacity: 0 }}>
+              <FileUpload onFileUpload={handleFileUpload} isProcessing={isProcessing} />
+            </div>
+
+            {/* Privacy note */}
+            <div className="flex justify-center mt-5 animate-fade-up" style={{ animationDelay: "0.2s", opacity: 0 }}>
+              <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full glass">
+                <Shield className="h-3 w-3 text-purple-400" />
+                <span className="text-[11px] text-muted-foreground">
+                  Data zůstávají pouze v prohlížeči — nikam se neodesílají
+                </span>
+              </div>
+            </div>
+
+            {/* Instructions */}
+            <div className="mt-14 animate-fade-up" style={{ animationDelay: "0.25s", opacity: 0 }}>
+              <Instructions />
+            </div>
+
+            {/* Demo CTA */}
+            <div className="mt-10 animate-fade-up" style={{ animationDelay: "0.3s", opacity: 0 }}>
+              <button
+                onClick={() => setShowDemo(true)}
+                className="group w-full relative overflow-hidden rounded-2xl card-glow hover:border-purple-500/30 transition-all duration-300 p-5"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-purple-500/10 border border-purple-500/20 group-hover:bg-purple-500/15 transition">
+                    <Eye className="h-5 w-5 text-purple-400" />
+                  </div>
+                  <div className="text-left flex-1">
+                    <p className="font-display font-semibold text-foreground text-sm">
+                      Podívej se na ukázku
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Jak budou tvoje statistiky vypadat
+                    </p>
+                  </div>
+                  <span className="text-purple-400 text-lg group-hover:translate-x-1 transition-transform">→</span>
+                </div>
+              </button>
+            </div>
+
+            <ConversionSection onScrollToUpload={scrollToUpload} />
+          </>
+        ) : !isPaid ? (
+          <LockedStats averageDaily={stats.averageDaily} />
+        ) : (
+          <div className="space-y-10 animate-fade-up">
+            <Statistics
+              totalMinutes={stats.totalMinutes}
+              totalVideos={stats.totalVideos}
+              longestSession={stats.longestSession}
+              averageDaily={stats.averageDaily}
+              periodStart={stats.periodStart}
+              periodEnd={stats.periodEnd}
+            />
+            <div className="section-divider" />
+            <Records
+              recordDay={stats.recordDay}
+              recordDayMinutes={stats.recordDayMinutes}
+              recordWeek={stats.recordWeek}
+            />
+            <div className="section-divider" />
+
+            {/* Last 30 days */}
+            <div className="card-glow rounded-2xl p-6 text-center space-y-4">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-semibold">
+                Posledních 30 dní
+              </p>
+              <div className="flex justify-center items-center gap-12">
+                <div>
+                  <p className="text-3xl font-display font-bold gradient-text">
+                    {stats.lastMonthMinutes.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">minut</p>
+                </div>
+                <div className="h-10 w-px bg-border/60" />
+                <div>
+                  <p className="text-3xl font-display font-bold gradient-text">
+                    {stats.lastMonthVideos.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">videí</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="section-divider" />
+            <ShareImageGenerator
+              totalMinutes={stats.totalMinutes}
+              totalVideos={stats.totalVideos}
+              longestSession={stats.longestSession}
+              averageDaily={stats.averageDaily}
+            />
+          </div>
+        )}
+
+        {stats && (
+          <button
+            onClick={resetAll}
+            className="mt-14 w-full text-xs text-muted-foreground hover:text-foreground transition"
+          >
+            ← Nahrát jiná data
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Index;
